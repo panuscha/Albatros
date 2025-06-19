@@ -3,6 +3,16 @@ from shapely import box
 from shapely.ops import unary_union
 from collections import defaultdict
 import pandas as pd
+import re
+import time
+import requests
+
+time_sleep = 0.3
+
+params = {'data' : 'data',
+        'model': 'nametag3-czech-cnec2.0-240830',  
+        'input': 'vertical',
+        'output': 'vertical'} 
 
 
 def compute_text_coverage(page):
@@ -120,3 +130,69 @@ def preprocess_text(text):
     text = text.strip().replace('\n', ' ').replace('\r', ' ')
     text = ' '.join(text.split())  # Normalize multiple spaces to a single space
     return text
+
+
+
+def findwords(spell, text, minlength=2, maxlength=-1, maxwords=-1):
+    #### From: https://discuss.python.org/t/search-an-english-word-in-a-string-without-delimiters/27445/19
+    textlength = len(text)
+    if maxlength < 0:
+        maxlength = textlength
+    cntwords = 0
+    for length in range(minlength, maxlength + 1):
+        prevcnt = cntwords
+        last1 = textlength - length + 1
+        for start in range(last1):
+            s = text[start:start+length]
+            if len(spell.unknown([s])) == 0:
+                print(f"{cntwords}: '{s}' at position {start} ({length})")
+                cntwords += 1
+                if maxwords > 0 and cntwords >= maxwords:
+                    return
+        if cntwords == prevcnt:
+            return
+        
+def decontracted(phrase):
+    '''' From https://stackoverflow.com/questions/19790188/expanding-english-language-contractions-in-python'''
+    # specific
+    phrase = re.sub(r"won\'t", "will not", phrase)
+    phrase = re.sub(r"wouldn\'t", "would not", phrase)
+    phrase = re.sub(r"can\'t", "can not", phrase)
+
+    # general
+    phrase = re.sub(r"n\'t", " not", phrase)
+    phrase = re.sub(r"\'re", " are", phrase)
+    phrase = re.sub(r"\'s", " is", phrase)
+    phrase = re.sub(r"\'d", " would", phrase)
+    phrase = re.sub(r"\'ll", " will", phrase)
+    phrase = re.sub(r"\'t", " not", phrase)
+    phrase = re.sub(r"\'ve", " have", phrase)
+    phrase = re.sub(r"\'m", " am", phrase)
+    return phrase
+
+def preprocessed_word(lemmatizer, word):
+    word = word.lower()
+    word = word.replace('colour', 'color') ## Normalize British English to American English
+    return lemmatizer.lemmatize(word.strip('….,:!?()[]{}"\''))        
+
+
+def find_ner(text):
+    global params
+    try:
+        text = ' '.join([word.capitalize() for word in text.split()])
+        params['data'] = text
+        response = requests.get(url="http://lindat.mff.cuni.cz/services/nametag/api/recognize", params=params)
+        response.raise_for_status()  # raises exception when not a 2xx response
+        if response.status_code != 204:
+            result = response.json()['result']
+            result = result.replace("\n", "\t")
+            s = result.split('\t')
+            s = s[0:-1]
+            if len(s) > 1:
+                for i in range(0, len(s), 3):
+                    print("name: " + s[i + 2])
+        time.sleep(time_sleep)            
+    except Exception as e:
+        print("Error:", e)
+
+    return  
